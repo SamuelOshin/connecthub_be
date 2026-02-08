@@ -39,7 +39,7 @@ def get_redis_pool() -> ConnectionPool:
 
     if _redis_pool is None:
         # Parse Redis URL from settings
-        redis_url = settings.redis_broker_url
+        redis_url = settings.redis_backend_url
         _redis_pool = ConnectionPool.from_url(
             redis_url,
             encoding="utf-8",
