@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     environment: str = "development"
+    app_url: str | None = None
+    dev_url: str | None = "http://localhost:3000"
 
     # Supabase Settings
     supabase_url: str
@@ -32,11 +34,12 @@ class Settings(BaseSettings):
     database_url: str | None = None
 
     # Redis (for ARQ background jobs)
-    redis_url: str = "redis://localhost:6379"
+    redis_broker_url: str = "redis://localhost:6379/0"
+    redis_backend_url: str = "redis://localhost:6379/1"
 
     # API Settings
     api_v1_prefix: str = "/api/v1"
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = []
 
     # JWT Settings (for additional validation if needed)
     jwt_secret_key: str = ""
@@ -47,6 +50,12 @@ class Settings(BaseSettings):
     default_discovery_radius_km: int = 50
     max_discovery_radius_km: int = 200
     discovery_batch_size: int = 20
+
+    def model_post_init(self, __context) -> None:
+        if not self.cors_origins:
+            self.cors_origins = [
+                origin for origin in (self.app_url, self.dev_url) if origin
+            ]
 
 
 @lru_cache

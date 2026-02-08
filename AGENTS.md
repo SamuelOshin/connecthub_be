@@ -476,7 +476,7 @@ async def send_notification(ctx, user_id: str, message: str):
 # Worker settings
 class WorkerSettings:
     functions = [send_notification]
-    redis_settings = RedisSettings.from_dsn(settings.redis_url)
+    redis_settings = RedisSettings.from_dsn(settings.redis_broker_url)
 ```
 
 ---
@@ -607,7 +607,12 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...
 DATABASE_URL=postgresql://...
 
 # Redis
-REDIS_URL=redis://localhost:6379
+REDIS_BROKER_URL=redis://localhost:6379/0
+REDIS_BACKEND_URL=redis://localhost:6379/1
+
+# CORS
+APP_URL=https://app.connecthub.com
+DEV_URL=http://localhost:3000
 
 # JWT (optional, Supabase handles this)
 JWT_SECRET_KEY=your-secret-key

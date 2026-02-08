@@ -3,16 +3,14 @@ ARQ Worker Settings.
 Configuration for background task processing.
 """
 
-import os
-from typing import Optional
-
 from arq.connections import RedisSettings
+
+from app.api.core.config import settings
 
 
 def get_redis_settings() -> RedisSettings:
     """Get Redis connection settings from environment."""
-
-    redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
+    redis_url = settings.redis_broker_url
 
     # Parse Redis URL
     if redis_url.startswith("redis://"):
