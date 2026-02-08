@@ -9,6 +9,10 @@ from typing import Any
 from redis.asyncio import ConnectionPool, Redis
 
 from app.api.core.config import settings
+from app.api.core.custom_exceptions.exceptions import (
+    RedisCacheError,
+    RedisConnectionError,
+)
 from app.api.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -40,13 +44,17 @@ def get_redis_pool() -> ConnectionPool:
     if _redis_pool is None:
         # Parse Redis URL from settings
         redis_url = settings.redis_backend_url
-        _redis_pool = ConnectionPool.from_url(
-            redis_url,
-            encoding="utf-8",
-            decode_responses=True,
-            max_connections=10,
-        )
-        logger.info(f"Redis connection pool created: {redis_url}")
+        try:
+            _redis_pool = ConnectionPool.from_url(
+                redis_url,
+                encoding="utf-8",
+                decode_responses=True,
+                max_connections=10,
+            )
+            logger.info(f"Redis connection pool created: {redis_url}")
+        except Exception as e:
+            logger.error(f"Redis connection pool creation failed: {e}")
+            raise RedisConnectionError()
 
     return _redis_pool
 
@@ -56,9 +64,13 @@ async def get_redis() -> Redis:
     global _redis_client
 
     if _redis_client is None:
-        pool = get_redis_pool()
-        _redis_client = Redis(connection_pool=pool)
-        logger.info("Redis client initialized")
+        try:
+            pool = get_redis_pool()
+            _redis_client = Redis(connection_pool=pool)
+            logger.info("Redis client initialized")
+        except Exception as e:
+            logger.error(f"Redis client initialization failed: {e}")
+            raise RedisConnectionError()
 
     return _redis_client
 
@@ -86,7 +98,7 @@ async def ping_redis() -> bool:
         return result
     except Exception as e:
         logger.error(f"Redis ping failed: {e}")
-        return False
+        raise RedisConnectionError()
 
 
 # ==========================================
@@ -124,7 +136,7 @@ async def cache_set(
         return True
     except Exception as e:
         logger.error(f"Cache set failed for {key}: {e}")
-        return False
+        raise RedisCacheError()
 
 
 async def cache_get(
@@ -157,7 +169,7 @@ async def cache_get(
         return result
     except Exception as e:
         logger.error(f"Cache get failed for {key}: {e}")
-        return None
+        raise RedisCacheError()
 
 
 async def cache_delete(
@@ -183,7 +195,7 @@ async def cache_delete(
         return result > 0
     except Exception as e:
         logger.error(f"Cache delete failed for {key}: {e}")
-        return False
+        raise RedisCacheError()
 
 
 async def cache_delete_pattern(pattern: str) -> int:
@@ -213,7 +225,7 @@ async def cache_delete_pattern(pattern: str) -> int:
         return result
     except Exception as e:
         logger.error(f"Cache delete pattern failed for {pattern}: {e}")
-        return 0
+        raise RedisCacheError()
 
 
 async def cache_set_multiple(
@@ -246,7 +258,7 @@ async def cache_set_multiple(
         return True
     except Exception as e:
         logger.error(f"Cache set multiple failed: {e}")
-        return False
+        raise RedisCacheError()
 
 
 # ==========================================
