@@ -14,13 +14,14 @@ from app.api.core.config import settings
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
+    # Import Redis client functions (deferred to avoid import issues)
+    from app.api.core.redis_client import close_redis, get_redis, ping_redis
+
     # Startup
     print(f"[STARTUP] Starting {settings.app_name} v{settings.app_version}")
     print(f"[ENV] Environment: {settings.environment}")
 
     # Initialize Redis
-    from app.api.core.redis_client import get_redis, ping_redis
-
     try:
         await get_redis()
         redis_status = await ping_redis()
@@ -35,8 +36,6 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     print("[SHUTDOWN] Shutting down ConnectHub API")
-    from app.api.core.redis_client import close_redis
-
     try:
         await close_redis()
         print("[SHUTDOWN] Redis connection closed")
