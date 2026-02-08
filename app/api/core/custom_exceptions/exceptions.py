@@ -65,6 +65,22 @@ class AlreadyExistsError(CustomDomainException):
         super().__init__(message=message, code="RESOURCE_EXISTS")
 
 
+class RedisConnectionError(CustomDomainException):
+    """Raised when Redis connection fails"""
+
+    def __init__(self, message: str = ""):
+        message = "Redis connection failed." if not message else message
+        super().__init__(message=message, code="REDIS_CONNECTION_ERROR")
+
+
+class RedisCacheError(CustomDomainException):
+    """Raised when a Redis cache operation fails"""
+
+    def __init__(self, message: str = ""):
+        message = "Redis cache operation failed." if not message else message
+        super().__init__(message=message, code="REDIS_CACHE_ERROR")
+
+
 
 # Authentication & Credentials Exceptions
 
