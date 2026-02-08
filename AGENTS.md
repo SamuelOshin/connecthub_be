@@ -328,6 +328,68 @@ CustomDomainException
     └── OAuthTokenInvalidError
 ```
 
+### Standard Error-Handling Pattern (MANDATORY)
+
+Use domain exceptions for ALL service-layer errors. Never raise raw `HTTPException` inside services. Services should:
+
+1. **Validate inputs** → raise `ValidationError` / `BadRequestError`
+2. **Enforce access control** → raise `ForbiddenError` / `PermissionDeniedError`
+3. **Handle missing data** → raise `NotFoundError`
+4. **Wrap external dependencies** (Supabase, Redis, Storage) → raise a specific CustomDomainException
+
+Controllers (routes) should be thin and let the global exception handler map errors to response codes.
+
+#### ✅ Good Service Pattern
+```python
+from app.api.core.custom_exceptions.exceptions import (
+    NotFoundError,
+    ForbiddenError,
+    RedisConnectionError,
+    RedisCacheError,
+)
+
+class ExampleService:
+    async def get_resource(self, user_id: UUID, resource_id: UUID) -> dict:
+        # Access control
+        if not self._has_access(user_id, resource_id):
+            raise ForbiddenError(message="Access denied", code="FORBIDDEN")
+
+        # External dependency (Redis cache)
+        try:
+            cached = await get_cached_resource(str(resource_id))
+        except RedisCacheError:
+            cached = None
+
+        if cached:
+            return cached
+
+        # DB lookup
+        result = self.supabase.table("resources").select("*").eq("id", str(resource_id)).single().execute()
+        if not result.data:
+            raise NotFoundError(message="Resource not found", code="NOT_FOUND")
+
+        return result.data
+```
+
+#### ❌ Bad Pattern
+```python
+from fastapi import HTTPException
+
+if not result.data:
+    raise HTTPException(status_code=404, detail="Not found")
+```
+
+### Dependency Error Mapping Rules
+
+When interacting with external systems, always map failures to custom exceptions:
+
+- **Supabase/Auth/DB failures** → `ProcessingError` or `DependencyError`
+- **Redis connection failures** → `RedisConnectionError`
+- **Redis cache operation failures** → `RedisCacheError`
+- **Storage failures** → `ProcessingError`
+
+These exceptions are mapped in `error_status_code_mapper.py` and should always be used instead of raw exceptions.
+
 ---
 
 ## Response Payloads
