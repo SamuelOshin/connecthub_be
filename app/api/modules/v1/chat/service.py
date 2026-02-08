@@ -574,10 +574,12 @@ class ChatService:
         )
 
     def _get_read_cursor(self, match_id: UUID, user_id: UUID) -> dict | None:
-        """Fetch read cursor for a user/match."""
+        """
+        Fetch read cursor for a user/match.
 
-        # Note: This is a sync method, so we skip caching here
-        # Read cursors are cached in the mark_as_read method instead
+        Note: This is a synchronous method called from sync context,
+        so Redis caching is not used here to avoid event loop complexity.
+        """
         result = (
             self.supabase.table("message_read_cursors")
             .select("match_id, user_id, last_read_message_id, last_read_at, updated_at")
