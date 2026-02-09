@@ -23,6 +23,10 @@ from app.workers.tasks.discovery import (
     cleanup_old_swipes,
     update_last_active,
 )
+from app.workers.tasks.chat import (
+    invalidate_message_caches,
+    update_sender_read_cursor,
+)
 
 
 async def startup(ctx: dict) -> None:
@@ -58,6 +62,9 @@ class WorkerSettings:
         cleanup_discovery_queues,
         cleanup_old_swipes,
         update_last_active,
+        # Chat tasks
+        invalidate_message_caches,
+        update_sender_read_cursor,
     ]
 
     # Scheduled jobs (cron)

@@ -19,6 +19,15 @@ class MessageCreate(BaseModel):
 
     content: str = Field(..., min_length=1, max_length=2000)
     message_type: Literal["text", "image", "system"] = "text"
+    client_timestamp: Optional[datetime] = Field(
+        None,
+        description="Client-provided timestamp for offline message ordering",
+    )
+    idempotency_key: Optional[str] = Field(
+        None,
+        max_length=64,
+        description="Unique key to prevent duplicate message sends",
+    )
 
 
 class MarkReadRequest(BaseModel):

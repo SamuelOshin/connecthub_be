@@ -28,6 +28,7 @@ CACHE_TTL_PROFILE = 300  # 5 minutes - user profile/avatar data
 CACHE_TTL_MATCH = 600  # 10 minutes - match data
 CACHE_TTL_READ_CURSOR = 30  # 30 seconds - read cursor data
 CACHE_TTL_CONVERSATION_LIST = 60  # 1 minute - conversation list
+CACHE_TTL_MATCH_STATS = 60  # 1 minute - match statistics (badges)
 
 
 # Cache key prefixes
@@ -35,6 +36,7 @@ KEY_PREFIX_PROFILE = "profile"
 KEY_PREFIX_MATCH = "match"
 KEY_PREFIX_READ_CURSOR = "read_cursor"
 KEY_PREFIX_CONVERSATION = "conversation"
+KEY_PREFIX_MATCH_STATS = "match_stats"
 
 
 def get_redis_pool() -> ConnectionPool:
@@ -370,4 +372,30 @@ async def invalidate_conversation_cache(user_id: str) -> bool:
     return await cache_delete(
         key=user_id,
         prefix=KEY_PREFIX_CONVERSATION,
+    )
+
+
+async def cache_match_stats(user_id: str, stats: dict) -> bool:
+    """Cache match statistics for a user (for sidebar badges)."""
+    return await cache_set(
+        key=user_id,
+        value=stats,
+        ttl=CACHE_TTL_MATCH_STATS,
+        prefix=KEY_PREFIX_MATCH_STATS,
+    )
+
+
+async def get_cached_match_stats(user_id: str) -> dict | None:
+    """Get cached match statistics."""
+    return await cache_get(
+        key=user_id,
+        prefix=KEY_PREFIX_MATCH_STATS,
+    )
+
+
+async def invalidate_match_stats(user_id: str) -> bool:
+    """Invalidate match stats cache for a user."""
+    return await cache_delete(
+        key=user_id,
+        prefix=KEY_PREFIX_MATCH_STATS,
     )
