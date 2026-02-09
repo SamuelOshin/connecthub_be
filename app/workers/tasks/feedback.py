@@ -32,7 +32,7 @@ async def request_feedback(ctx: dict) -> dict[str, Any]:
     Schedule: 4x daily (every 6 hours)
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=FEEDBACK_REQUEST_DELAY_DAYS)
@@ -110,7 +110,7 @@ async def process_feedback(ctx: dict, feedback_id: str) -> dict[str, Any]:
     Schedule: On demand (triggered when feedback is submitted)
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     feedback = supabase.table("connection_feedback").select("*").eq(
         "id", feedback_id

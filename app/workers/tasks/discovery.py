@@ -23,7 +23,7 @@ async def cleanup_discovery_queues(ctx: dict) -> dict[str, Any]:
     Schedule: Every hour
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     now = datetime.now(timezone.utc)
 
@@ -52,7 +52,7 @@ async def cleanup_old_swipes(ctx: dict) -> dict[str, Any]:
     Schedule: Weekly
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     now = datetime.now(timezone.utc)
     ninety_days_ago = now - timedelta(days=90)
@@ -82,7 +82,7 @@ async def update_last_active(ctx: dict, user_id: str) -> dict[str, Any]:
     Schedule: On demand
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     now = datetime.now(timezone.utc)
 

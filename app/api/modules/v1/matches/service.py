@@ -135,11 +135,34 @@ class MatchesService:
     async def get_stats(self, user_id: UUID) -> dict:
         """
         Get match statistics for UI badges.
+        Uses Redis caching to reduce database load.
         
         Returns:
         - active_count: Number of active matches
         - likes_you_count: Number of users who liked you (waiting for your swipe)
+        - unread_messages_count: Total unread messages across all matches
         """
+        from app.api.core.redis_client import (
+            get_cached_match_stats,
+            cache_match_stats,
+        )
+        from app.api.core.logging import get_logger
+        
+        logger = get_logger(__name__)
+        user_id_str = str(user_id)
+        
+        # Try to get from cache first
+        try:
+            cached = await get_cached_match_stats(user_id_str)
+            if cached is not None:
+                logger.debug(f"Match stats cache hit for user {user_id_str}")
+                return cached
+        except Exception as e:
+            logger.warning(f"Redis cache read failed, falling back to DB: {e}")
+        
+        # Cache miss - query database
+        logger.debug(f"Match stats cache miss for user {user_id_str}")
+        
         # Count active matches
         matches_result = self.supabase.table("matches").select(
             "id", count="exact"
@@ -173,26 +196,44 @@ class MatchesService:
         pending_likes = [lid for lid in liker_ids if lid not in swiped_ids]
         likes_you_count = len(pending_likes)
 
-        # Count unread messages
-        # Use match_ids from the first query (which handles case-insensitive 'active')
+        # Count unread messages using read cursors (same approach as chat service)
+        # A message is "unread" if it was sent after the user's last read cursor
         match_ids = [m["id"] for m in (matches_result.data or [])]
-        
         unread_messages_count = 0
         if match_ids:
-            # 2. Count unread messages in these matches sent by others
-            unread_result = self.supabase.table("messages").select(
-                "id", count="exact"
-            ).in_("match_id", match_ids).neq(
-                "sender_id", str(user_id)
-            ).is_("read_at", "null").execute()
-            
-            unread_messages_count = unread_result.count or 0
+            for match_id in match_ids:
+                # Get user's read cursor for this match
+                cursor = self.supabase.table("message_read_cursors").select(
+                    "last_read_at"
+                ).eq("match_id", match_id).eq(
+                    "user_id", str(user_id)
+                ).maybe_single().execute()
+                
+                # Count messages from others after the cursor
+                unread_query = self.supabase.table("messages").select(
+                    "id", count="exact"
+                ).eq("match_id", match_id).neq("sender_id", str(user_id))
+                
+                if cursor and cursor.data and cursor.data.get("last_read_at"):
+                    unread_query = unread_query.gt("created_at", cursor.data["last_read_at"])
+                
+                unread_result = unread_query.execute()
+                unread_messages_count += unread_result.count or 0
 
-        return {
+        stats = {
             "active_count": active_count,
             "likes_you_count": likes_you_count,
             "unread_messages_count": unread_messages_count,
         }
+        
+        # Cache the result
+        try:
+            await cache_match_stats(user_id_str, stats)
+            logger.debug(f"Match stats cached for user {user_id_str}")
+        except Exception as e:
+            logger.warning(f"Failed to cache match stats: {e}")
+        
+        return stats
 
     async def get_likes_you(self, user_id: UUID) -> List[dict]:
         """
@@ -464,12 +505,21 @@ class MatchesService:
 
         msg = result.data
 
-        # Count unread
-        unread = self.supabase.table("messages").select(
+        # Count unread using read cursor (not read_at column)
+        cursor = self.supabase.table("message_read_cursors").select(
+            "last_read_at"
+        ).eq("match_id", match_id).eq(
+            "user_id", str(user_id)
+        ).maybe_single().execute()
+        
+        unread_query = self.supabase.table("messages").select(
             "id", count="exact"
-        ).eq("match_id", match_id).neq(
-            "sender_id", str(user_id)
-        ).is_("read_at", "null").execute()
+        ).eq("match_id", match_id).neq("sender_id", str(user_id))
+        
+        if cursor and cursor.data and cursor.data.get("last_read_at"):
+            unread_query = unread_query.gt("created_at", cursor.data["last_read_at"])
+        
+        unread = unread_query.execute()
 
         return {
             "preview": msg.get("content", "")[:50],
