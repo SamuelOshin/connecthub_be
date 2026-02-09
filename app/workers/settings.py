@@ -58,7 +58,13 @@ REDIS_SETTINGS = get_redis_settings()
 MAX_TRIES = 3
 JOB_TIMEOUT = 300  # 5 minutes
 
+# Chat task settings (fast, short-lived)
+CHAT_TASK_TIMEOUT = 30  # 30 seconds
+CHAT_MAX_TRIES = 3
+
 # Queue names
 QUEUE_DEFAULT = "default"
 QUEUE_MATCHING = "matching"
 QUEUE_NOTIFICATIONS = "notifications"
+QUEUE_CHAT = "chat"
+

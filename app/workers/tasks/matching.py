@@ -28,7 +28,7 @@ async def process_match_expirations(ctx: dict) -> dict[str, Any]:
     Schedule: Every hour
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     now = datetime.now(timezone.utc)
     twelve_hours_from_now = now + timedelta(hours=12)
@@ -126,7 +126,7 @@ async def refresh_discovery_queues(ctx: dict) -> dict[str, Any]:
     Schedule: Every hour
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     now = datetime.now(timezone.utc)
 
@@ -181,7 +181,7 @@ async def recalculate_user_scores(ctx: dict) -> dict[str, Any]:
     Schedule: Daily at 3 AM
     """
 
-    supabase = create_client(settings.SUPABASE_URL, settings.SUPABASE_SERVICE_KEY)
+    supabase = create_client(settings.supabase_url, settings.supabase_service_role_key)
 
     # Get all profiles
     profiles = supabase.table("profiles").select("id, created_at").execute()

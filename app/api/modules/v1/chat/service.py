@@ -2,7 +2,8 @@
 Chat service for message management.
 """
 
-from datetime import UTC, datetime
+import hashlib
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 from supabase import Client
@@ -18,9 +19,9 @@ from app.api.core.redis_client import (
     cache_profile,
     get_cached_match,
     get_cached_profile,
-    invalidate_conversation_cache,
     invalidate_match_cache,
 )
+from app.workers.tasks.chat import enqueue_post_message_tasks
 from app.api.modules.v1.chat.schemas import (
     ConversationListResponse,
     ConversationPreview,
@@ -170,20 +171,35 @@ class ChatService:
     ) -> SendMessageResponse:
         """
         Send a message in a match conversation.
-        Updates first_message_at if this is the first message.
-        """
 
-        # Verify user is part of this match
+        - INSERT is synchronous (user needs immediate confirmation)
+        - Cache invalidation is async via ARQ (latency optimization)
+        - Handles idempotency for retry scenarios
+
+        Args:
+            user_id: The sender's user ID
+            match_id: The match/conversation ID
+            message_data: Message content and metadata
+
+        Returns:
+            SendMessageResponse with the new message
+
+        Raises:
+            BadRequestError: If match is inactive or expired
+            ForbiddenError: If user is not part of the match
+            NotFoundError: If match doesn't exist
+        """
+        # 1. Verify match access (sync - must complete)
         match = await self._verify_match_access(user_id, match_id)
 
-        # Check match is still active
+        # 2. Validate match status
         if match["status"].upper() != "ACTIVE":
             raise BadRequestError(
                 message="Cannot send message to inactive match",
                 code="MATCH_NOT_ACTIVE",
             )
 
-        # Check match hasn't expired
+        # 3. Check expiration
         if match.get("expires_at"):
             expires_at = datetime.fromisoformat(match["expires_at"].replace("Z", "+00:00"))
             if expires_at < datetime.now(UTC):
@@ -192,17 +208,33 @@ class ChatService:
                     code="MATCH_EXPIRED",
                 )
 
-        # Check if this is the first message
+        # 4. Handle idempotency - check if message already exists
+        idempotency_key = message_data.idempotency_key or self._generate_idempotency_key(
+            match_id, user_id, message_data.content, message_data.client_timestamp
+        )
+
+        existing = self._check_idempotency(match_id, idempotency_key)
+        if existing:
+            logger.info(f"Duplicate message detected, returning existing: {existing['id']}")
+            return SendMessageResponse(
+                message=await self._build_message_response(existing, user_id),
+                first_message_sent=False,
+            )
+
+        # 5. Determine timestamp (clamp client timestamp or use server time)
+        now = datetime.now(UTC)
+        message_timestamp = self._validate_client_timestamp(message_data.client_timestamp, now)
+
+        # 6. INSERT message (SYNCHRONOUS - must complete before returning)
         first_message_sent = match.get("first_message_at") is None
 
-        # Insert message
-        now = datetime.now(UTC)
         message_insert = {
             "match_id": str(match_id),
             "sender_id": str(user_id),
             "content": message_data.content,
             "message_type": message_data.message_type,
-            "created_at": now.isoformat(),
+            "created_at": message_timestamp.isoformat(),
+            "idempotency_key": idempotency_key,
         }
 
         result = self.supabase.table("messages").insert(message_insert).execute()
@@ -215,33 +247,90 @@ class ChatService:
 
         new_message = result.data[0]
 
-        # Update match first_message_at if this is the first message
+        # 7. Update first_message_at if needed (SYNCHRONOUS - part of critical flow)
         if first_message_sent:
             self.supabase.table("matches").update(
                 {
-                    "first_message_at": now.isoformat(),
+                    "first_message_at": message_timestamp.isoformat(),
                 }
             ).eq("id", str(match_id)).execute()
 
-            # Invalidate match cache since we updated it
-            await invalidate_match_cache(str(match_id))
-
-        # Invalidate conversation cache for both users
+        # 8. Enqueue async tasks (non-blocking)
         other_user_id = (
             match["user2_id"] if match["user1_id"] == str(user_id) else match["user1_id"]
         )
-        await invalidate_conversation_cache(str(user_id))
-        await invalidate_conversation_cache(other_user_id)
 
-        logger.info(f"Message sent in match {match_id}, caches invalidated")
+        await enqueue_post_message_tasks(
+            match_id=str(match_id),
+            sender_id=str(user_id),
+            other_user_id=other_user_id,
+            message_id=new_message["id"],
+            message_created_at=message_timestamp.isoformat(),
+            invalidate_match_cache=first_message_sent,
+        )
 
-        # Build response
-        message_response = await self._build_message_response(new_message, user_id)
+        logger.info(f"Message sent in match {match_id}, async tasks enqueued")
 
+        # 9. Return response immediately
         return SendMessageResponse(
-            message=message_response,
+            message=await self._build_message_response(new_message, user_id),
             first_message_sent=first_message_sent,
         )
+
+    def _generate_idempotency_key(
+        self,
+        match_id: UUID,
+        user_id: UUID,
+        content: str,
+        client_timestamp: datetime | None,
+    ) -> str:
+        """Generate hash-based idempotency key."""
+        timestamp_str = client_timestamp.isoformat() if client_timestamp else ""
+        data = f"{match_id}:{user_id}:{content}:{timestamp_str}"
+        return hashlib.sha256(data.encode()).hexdigest()[:32]
+
+    def _check_idempotency(
+        self,
+        match_id: UUID,
+        idempotency_key: str,
+    ) -> dict | None:
+        """Check if message with this idempotency key exists."""
+        result = (
+            self.supabase.table("messages")
+            .select("*")
+            .eq("match_id", str(match_id))
+            .eq("idempotency_key", idempotency_key)
+            .maybe_single()
+            .execute()
+        )
+        # maybe_single() returns APIResponse with data=None if no row found
+        return result.data if result else None
+
+    def _validate_client_timestamp(
+        self,
+        client_timestamp: datetime | None,
+        server_time: datetime,
+    ) -> datetime:
+        """Validate and clamp client timestamp."""
+        if not client_timestamp:
+            return server_time
+
+        # Allow ±5 minutes variance
+        max_drift = timedelta(minutes=5)
+
+        if client_timestamp > server_time + max_drift:
+            logger.warning(
+                f"Client timestamp {client_timestamp} is in future, using server time"
+            )
+            return server_time
+
+        if client_timestamp < server_time - max_drift:
+            logger.warning(
+                f"Client timestamp {client_timestamp} is too old, using server time"
+            )
+            return server_time
+
+        return client_timestamp
 
     async def mark_as_read(
         self,
@@ -318,6 +407,12 @@ class ChatService:
             count_query = count_query.gt("created_at", previous_last_read_at)
 
         count_result = count_query.execute()
+
+        # Invalidate conversation cache so unread count updates in sidebar
+        from app.api.core.redis_client import invalidate_conversation_cache, invalidate_match_stats
+        await invalidate_conversation_cache(str(user_id))
+        # Also invalidate match stats so sidebar badge updates immediately
+        await invalidate_match_stats(str(user_id))
 
         return count_result.count or 0
 
